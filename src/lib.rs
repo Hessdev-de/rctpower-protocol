@@ -4,6 +4,8 @@
 //! rctpower_writesupport (MIT, do-gooder). See NOTICE.
 
 pub mod client;
+#[cfg(feature = "async")]
+pub mod async_client;
 pub mod codec;
 pub mod error;
 pub mod frame;

@@ -13,7 +13,7 @@ import sys
 import threading
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent / "vendor" / "python-rctclient" / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "vendor" / "python-rctclient" / "src"))
 
 from rctclient.frame import make_frame  # noqa: E402
 from rctclient.types import Command, DataType, FrameType  # noqa: E402
@@ -40,16 +40,17 @@ def parse_request(data: bytes):
 
 
 def handle(sock: socket.socket) -> None:
-    data = sock.recv(1024)
-    if not data:
-        return
-    command, oid, payload = parse_request(data)
-    if command == Command.WRITE:
-        val = decode_value(DataType.FLOAT, payload)
-    else:
-        val = RESPONSE_FLOAT
-    resp = make_frame(Command.RESPONSE, oid, struct.pack(">f", float(val)), 0, FrameType.STANDARD)
-    sock.sendall(resp)
+    while True:
+        data = sock.recv(1024)
+        if not data:
+            break
+        command, oid, payload = parse_request(data)
+        if command == Command.WRITE:
+            val = decode_value(DataType.FLOAT, payload)
+        else:
+            val = RESPONSE_FLOAT
+        resp = make_frame(Command.RESPONSE, oid, struct.pack(">f", float(val)), 0, FrameType.STANDARD)
+        sock.sendall(resp)
     sock.close()
 
 

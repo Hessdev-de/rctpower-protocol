@@ -9,25 +9,20 @@ implements a clean interface to RUST applications.
 The code contains an example client to read and set fields. The client connect to the inverter
 to port 8899.
 
+> [!WARNING]
+> This library is provided as is, I do not take responsabilities for any issues or errors. Changing
+> parameters can lead to major issues, kill your cat or burn down your house.
+> !!! Do not use unless you know what you are doing !!!
+
+
+## Client implementations
+
 Two clients are available:
 
 - `client::Client` — synchronous. Keeps the connection open for its lifetime and
   closes it on `drop()`; reconnects only after an error.
 - `async_client::AsyncClient` — tokio-based, feature `async`. Same connection
   handling: kept open, closed on `drop()`, reconnect-on-error.
-- `proxy::Proxy` — feature `async`. Listens on a TCP port and multiplexes many
-  downstream clients onto the single inverter connection (requests are serialized
-  and forwarded as plain protocol frames, so any RCT client can connect to the
-  proxy port).
-
-```rust
-// energy2mqtt side: one proxy in front of the inverter...
-let mut cfg = ClientConfig::default();
-cfg.port = 8899; // proxy listener port (downstream clients connect here)
-let proxy = Proxy::bind("192.168.1.50:8899", cfg.clone()).await?;
-tokio::spawn(proxy.serve());
-// ...and N AsyncClients connecting to 127.0.0.1:8899 as if they were the inverter.
-```
 
 As standalone tool (example, feature `cli`):
 
@@ -40,10 +35,11 @@ cargo run --features cli --example rct_proxy -- --port 18899 --host 192.168.1.50
 rctpower_protocol = { version = "0.0.1", features = ["async"] }
 ```
 
-> [!WARNING]
-> This library is provided as is, I do not take responsabilities for any issues or errors. Changing
-> parameters can lead to major issues, kill your cat or burn down your house.
-> !!! Do not use unless you know what you are doing !!!
+## Proxy usage
+
+This crate contains a proxy (if build with async), which Listens on a TCP port and multiplexes
+multiple downstream clients onto the single inverter connection (requests are serialized
+and forwarded as plain protocol frames, so any RCT client can connect to the proxy port).
 
 
 ## Updating from mainline python implementation

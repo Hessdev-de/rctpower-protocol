@@ -9,6 +9,17 @@ implements a clean interface to RUST applications.
 The code contains an example client to read and set fields. The client connect to the inverter
 to port 8899.
 
+Two clients are available:
+
+- `client::Client` — synchronous, one-shot connection per call (no async runtime needed).
+- `async_client::AsyncClient` — tokio-based, feature `async`. Keeps the connection open
+  across calls and reconnects automatically if the inverter dropped it.
+
+```toml
+[dependencies]
+rctpower_protocol = { version = "0.0.1", features = ["async"] }
+```
+
 > [!WARNING]
 > This library is provided as is, I do not take responsabilities for any issues or errors. Changing
 > parameters can lead to major issues, kill your cat or burn down your house.

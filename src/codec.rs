@@ -17,7 +17,7 @@ pub fn crc16(data: &[u8]) -> u16 {
 
     // skip start token quirk: pad odd input with 0
     let even_pad = data.len() & 0x01 == 1;
-    let mut iter = data.iter().copied().chain(if even_pad { Some(0) } else { None });
+    let iter = data.iter().copied().chain(if even_pad { Some(0) } else { None });
 
     for byte in iter {
         crcsum ^= (byte as u32) << 8;

@@ -22,7 +22,7 @@ pub fn make_frame(
     address: u32,
     frame_type: FrameType,
 ) -> Result<Vec<u8>, RctError> {
-    let plant = Command::is_plant_byte(command.byte());
+    let _plant = Command::is_plant_byte(command.byte());
     let mut buf: Vec<u8> = Vec::new();
     buf.push(command.byte());
     if command.is_long() {
@@ -216,10 +216,6 @@ impl ReceiveFrame {
     #[inline]
     fn header_complete_at(&self) -> usize {
         self.frame_header_length
-    }
-    #[inline]
-    fn header_len_at(&self, _blen: usize) -> Option<usize> {
-        None // no-op guard, real logic uses frame_header_length directly
     }
 }
 

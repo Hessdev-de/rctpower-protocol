@@ -18,9 +18,9 @@ to port 8899.
 ## Updating from mainline python implementation
 
 
-1. `git submodule update --remote vendor/python-rctclient — update to the latest upstream update 
+1. `git submodule update --remote vendor/python-rctclient` — update to the latest upstream update 
 2. `python3 tools/generate_registry.py`— build a new registry.csv from upstream
-3. `git diff crates/rctpower-protocol/data/registry.csv vendor/python-rctclient` — review the data-only
+3. `git diff data/registry.csv vendor/python-rctclient` — review the data-only
    delta plus the new pinned submodule commit
 4. `cargo test` — golden vectors + conformance must work after the update
 5. `git commit` — pins the upstream commit via the submodule gitlink

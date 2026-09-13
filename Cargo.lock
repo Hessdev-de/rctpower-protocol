@@ -141,8 +141,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "rctpower-protocol"
-version = "0.1.0"
+name = "rctpower_protocol"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "clap",

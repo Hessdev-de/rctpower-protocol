@@ -1,0 +1,8 @@
+rct-rs — Rust implementation of the RCT Power serial protocol.
+
+Copyright (C) 2026 rct-rs contributors — GPL-3.0-only.
+
+Protocol/codec/registry derived from python-rctclient by Peter Oberhofer (pob90)
+and Stefan Valouch (svalouch), GPL-3.0-only (vendor/python-rctclient).
+Write-support validation rules derived from rctpower_writesupport by do-gooder,
+MIT license (vendor/rctpower_writesupport).

@@ -1,0 +1,6 @@
+[submodule "vendor/python-rctclient"]
+	path = vendor/python-rctclient
+	url = https://github.com/svalouch/python-rctclient.git
+[submodule "vendor/rctpower_writesupport"]
+	path = vendor/rctpower_writesupport
+	url = https://github.com/do-gooder/rctpower_writesupport.git

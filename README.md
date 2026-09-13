@@ -1,0 +1,58 @@
+# RUST implementation to work with RCT inverters
+
+I own a RCT invertet and used Home Assistant with the RCT Power Integration [rct-power-integration]
+but wanted to build my hems on RUST with [energy2mqtt].
+
+This code base is something like a wrapper to [python-rctclient] and [rctpower-writesupport] and
+implements a clean interface to RUST applications.
+
+The code contains an example client to read and set fields. The client connect to the inverter
+to port 8899.
+
+> [!WARNING]
+> This library is provided as is, I do not take responsabilities for any issues or errors. Changing
+> parameters can lead to major issues, kill your cat or burn down your house.
+> !!! Do not use unless you know what you are doing !!!
+
+
+## Updating from mainline python implementation
+
+
+1. `git submodule update --remote vendor/python-rctclient — update to the latest upstream update 
+2. `python3 tools/generate_registry.py`— build a new registry.csv from upstream
+3. `git diff crates/rctpower-protocol/data/registry.csv vendor/python-rctclient` — review the data-only
+   delta plus the new pinned submodule commit
+4. `cargo test` — golden vectors + conformance must work after the update
+5. `git commit` — pins the upstream commit via the submodule gitlink
+
+
+In most cases no updates to the Rust code should be needed. If RCT or python mainline add new DataTypes
+or ObjectGroup entries, we need to handle those in `types.rs`
+
+## Testing
+
+```
+cargo test                                  # unit + golden vectors
+cargo test -- --ignored                     # e2e vs python simulator
+```
+
+Golden vectors taken from python-rctclient tests. Thank you guys!
+
+## Safety
+
+- The inverter serves exactly ONE protocol client.
+  Close RCT app / Home Assistant / OpenWB / EVCC before writing.
+- `rct set` refuses to write without `--yes` (stricter than rct.py).
+- Values are validated against the rct.py ruleset before sending.
+- All risk from writes lies with the operator.
+
+## License
+
+GPL-3.0-only (derived from python-rctclient, GPL-3.0; write rules from
+rctpower_writesupport, MIT — see NOTICE).
+
+---
+[energy2mqtt]: https://energy2mqtt.org
+[python-rctclient]: https://github.com/svalouch/python-rctclient
+[rctpower-writesupport]: https://github.com/do-gooder/rctpower_writesupport
+[rct-power-integration]: https://github.com/weltenwort/home-assistant-rct-power-integration/

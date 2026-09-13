@@ -100,6 +100,14 @@ impl ReceiveFrame {
     pub fn consumed_bytes(&self) -> usize {
         self.consumed_bytes
     }
+    /// True when no bytes are buffered yet (parser at frame start).
+    pub fn no_bytes(&self) -> bool {
+        self.buffer.is_empty()
+    }
+    /// Raw wire bytes of the current frame, escaping included (as received).
+    pub fn wire_bytes(&self) -> Vec<u8> {
+        self.buffer.clone()
+    }
     pub fn command(&self) -> Option<Command> {
         self.command
     }

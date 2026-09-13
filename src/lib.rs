@@ -6,6 +6,8 @@
 pub mod client;
 #[cfg(feature = "async")]
 pub mod async_client;
+#[cfg(feature = "async")]
+pub mod proxy;
 pub mod codec;
 pub mod error;
 pub mod frame;

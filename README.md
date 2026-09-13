@@ -15,6 +15,19 @@ Two clients are available:
   closes it on `drop()`; reconnects only after an error.
 - `async_client::AsyncClient` — tokio-based, feature `async`. Same connection
   handling: kept open, closed on `drop()`, reconnect-on-error.
+- `proxy::Proxy` — feature `async`. Listens on a TCP port and multiplexes many
+  downstream clients onto the single inverter connection (requests are serialized
+  and forwarded as plain protocol frames, so any RCT client can connect to the
+  proxy port).
+
+```rust
+// energy2mqtt side: one proxy in front of the inverter...
+let mut cfg = ClientConfig::default();
+cfg.port = 8899; // proxy listener port (downstream clients connect here)
+let proxy = Proxy::bind("192.168.1.50:8899", cfg.clone()).await?;
+tokio::spawn(proxy.serve());
+// ...and N AsyncClients connecting to 127.0.0.1:8899 as if they were the inverter.
+```
 
 ```toml
 [dependencies]

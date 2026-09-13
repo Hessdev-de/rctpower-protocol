@@ -4,7 +4,7 @@
 // Copyright 2020 Peter Oberhofer (pob90), 2020-2026 Stefan Valouch (svalouch),
 // SPDX-License-Identifier: GPL-3.0-only
 
-use std::fmt;
+use std::fmt::{self, Display};
 
 /// Commands that can be used with send/receive frames.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,6 +75,46 @@ impl Command {
     }
 }
 
+static NAMES: [&'static str; 37] = [
+    "RB485",
+    "ENERGY",
+    "GRID_MON",
+    "TEMPERATURE",
+    "BATTERY",
+    "CS_NEG",
+    "HW_TEST",
+    "G_SYNC",
+    "LOGGER",
+    "WIFI",
+    "ADC",
+    "NET",
+    "ACC_CONV",
+    "DC_CONV",
+    "NSM",
+    "IO_BOARD",
+    "FLASH_RTC",
+    "POWER_MNG",
+    "BUF_V_CONTROL",
+    "DB",
+    "SWITCH_ON_COND",
+    "P_REC",
+    "MODBUS",
+    "BAT_MNG_STRUCT",
+    "ISO_STRUCT",
+    "GRID_LT",
+    "CAN_BUS",
+    "DISPLAY_STRUCT",
+    "FLASH_PARAM",
+    "FAULT",
+    "PRIM_SM",
+    "CS_MAP",
+    "LINE_MON",
+    "OTHERS",
+    "BATTERY_PLACEHOLDER",
+    "FRT",
+    "PARTITION"
+];
+
 /// Grouping information for object IDs (not used by the protocol itself).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
@@ -116,6 +156,12 @@ pub enum ObjectGroup {
     BatteryPlaceholder = 34,
     Frt = 35,
     Partition = 36,
+}
+
+impl Display for ObjectGroup {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", NAMES[*self as usize].to_string())
+    }
 }
 
 impl ObjectGroup {
@@ -165,6 +211,16 @@ impl ObjectGroup {
         } else {
             None
         }
+    }
+
+    pub fn from_string(entry: &str) -> Option<ObjectGroup> {
+        for e in 0..NAMES.len() {
+            if NAMES[e] == entry {
+                return ObjectGroup::from_u8(e as u8);
+            }
+        }
+
+        return None;
     }
 }
 

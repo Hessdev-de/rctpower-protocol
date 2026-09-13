@@ -67,7 +67,7 @@ fn build() -> &'static Registry {
             let f: Vec<&str> = line.split(';').map(|s| s.trim_end_matches('\r')).collect();
             let get = |c: &str| f.get(idx(c)).copied().unwrap_or("");
             entries.push(ObjectInfo {
-                group: ObjectGroup::from_u8(get("group").parse().unwrap_or(255)).unwrap_or(ObjectGroup::Others),
+                group: ObjectGroup::from_string(get("group")).unwrap_or(ObjectGroup::Others),
                 object_id: u32::from_str_radix(get("object_id").trim_start_matches("0x"), 16).unwrap(),
                 index: get("index").parse().unwrap_or(-1),
                 name: leak_str(get("name")),

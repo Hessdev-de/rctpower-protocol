@@ -75,7 +75,7 @@ impl Command {
     }
 }
 
-static NAMES: [&'static str; 37] = [
+static NAMES: [&str; 37] = [
     "RB485",
     "ENERGY",
     "GRID_MON",
@@ -160,7 +160,7 @@ pub enum ObjectGroup {
 
 impl Display for ObjectGroup {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", NAMES[*self as usize].to_string())
+        write!(f, "{}", NAMES[*self as usize])
     }
 }
 
@@ -214,13 +214,13 @@ impl ObjectGroup {
     }
 
     pub fn from_string(entry: &str) -> Option<ObjectGroup> {
-        for e in 0..NAMES.len() {
-            if NAMES[e] == entry {
+        for (e, item) in NAMES.iter().enumerate() {
+            if *item == entry {
                 return ObjectGroup::from_u8(e as u8);
             }
         }
 
-        return None;
+        None
     }
 }
 

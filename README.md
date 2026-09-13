@@ -29,6 +29,12 @@ tokio::spawn(proxy.serve());
 // ...and N AsyncClients connecting to 127.0.0.1:8899 as if they were the inverter.
 ```
 
+As standalone tool (example, feature `cli`):
+
+```
+cargo run --features cli --example rct_proxy -- --port 18899 --host 192.168.1.50 [--inverter-port 8899]
+```
+
 ```toml
 [dependencies]
 rctpower_protocol = { version = "0.0.1", features = ["async"] }

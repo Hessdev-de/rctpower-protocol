@@ -47,6 +47,9 @@ fn e2e_read_float() {
     let soc = registry().get_by_name("battery.soc").unwrap();
     let v = client.read(soc).expect("read from simulator");
     assert_eq!(v, DataValue::F32(0.42));
+    // second read must reuse the pooled connection (simulator loops per connection)
+    let v2 = client.read(soc).expect("read on kept-alive conn");
+    assert_eq!(v2, DataValue::F32(0.42));
     let _ = child.kill();
 }
 

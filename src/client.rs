@@ -1,9 +1,14 @@
-// Minimal sync TCP client for the RCT Power serial protocol (port 8899).
+// TCP client for the RCT Power serial protocol (port 8899).
 //
 // SAFETY: the inverter accepts exactly one protocol client at a time. Ensure no
 // other connection (RCT app, HA integration, OpenWB, EVCC, ...) is active while
 // writing. Writes change plant behaviour — all risk lies with the operator.
+//
+// Connection handling: the socket is kept open for the client's lifetime and is
+// closed on drop(). Reconnects happen only when the inverter dropped the
+// connection or an exchange failed.
 
+use std::cell::RefCell;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::{Duration, Instant};
@@ -38,14 +43,20 @@ impl Default for ClientConfig {
 pub struct Client {
     addr: String,
     cfg: ClientConfig,
+    /// Held open for the client's lifetime; closed on drop().
+    conn: RefCell<Option<TcpStream>>,
 }
 
 impl Client {
     pub fn new(host: impl Into<String>, cfg: ClientConfig) -> Self {
-        Client { addr: host.into(), cfg }
+        Client {
+            addr: host.into(),
+            cfg,
+            conn: RefCell::new(None),
+        }
     }
 
-    /// Read an object (one-shot connection, like rct.py get).
+    /// Read an object.
     pub fn read(&self, obj: &ObjectInfo) -> Result<DataValue, RctError> {
         let frame = make_frame(crate::types::Command::Read, obj.object_id, &[], 0, crate::types::FrameType::Standard)?;
         self.exchange(&frame, obj.response_data_type)
@@ -71,11 +82,18 @@ impl Client {
     }
 
     fn try_exchange(&self, frame: &[u8], resp_type: DataType) -> Result<DataValue, RctError> {
-        let sock_addr = (self.addr.as_str(), self.cfg.port)
-            .to_socket_addrs()?
-            .next()
-            .ok_or(RctError::Timeout)?;
-        let mut sock = TcpStream::connect(sock_addr)?;
+        let mut guard = self.conn.borrow_mut();
+        let sock = match guard.as_mut() {
+            Some(sock) => sock,
+            None => {
+                let sock_addr = (self.addr.as_str(), self.cfg.port)
+                    .to_socket_addrs()?
+                    .next()
+                    .ok_or(RctError::Timeout)?;
+                let sock = TcpStream::connect_timeout(&sock_addr, self.cfg.timeout)?;
+                guard.insert(sock)
+            }
+        };
         sock.set_read_timeout(Some(self.cfg.timeout))?;
         sock.set_write_timeout(Some(self.cfg.timeout))?;
         sock.write_all(frame)?;
@@ -99,6 +117,19 @@ impl Client {
         if rx.data().is_empty() {
             return Err(RctError::EmptyPayload);
         }
-        decode_value(resp_type, rx.data())
+        let value = decode_value(resp_type, rx.data());
+        if value.is_err() {
+            // unknown frame state -> force reconnect on next call
+            *guard = None;
+        }
+        value
+    }
+}
+
+impl Drop for Client {
+    fn drop(&mut self) {
+        if let Some(sock) = self.conn.get_mut() {
+            let _ = sock.shutdown(std::net::Shutdown::Both);
+        }
     }
 }

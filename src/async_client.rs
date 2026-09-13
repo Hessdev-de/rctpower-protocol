@@ -97,7 +97,9 @@ impl AsyncClient {
         let result = Self::exchange_on(sock, frame, resp_type, self.cfg.timeout).await;
         if result.is_err() {
             // Connection may be in an unknown state; drop it so the next call reconnects.
-            *guard = None;
+            if let Some(sock) = guard.take() {
+                drop(sock);
+            }
         }
         result
     }
@@ -127,6 +129,18 @@ impl AsyncClient {
             return Err(RctError::EmptyPayload);
         }
         decode_value(resp_type, rx.data())
+    }
+}
+
+impl Drop for AsyncClient {
+    fn drop(&mut self) {
+        // tokio sockets close their fd on drop; take it explicitly so the
+        // connection is torn down when the client goes out of scope.
+        if let Ok(mut guard) = self.conn.lock() {
+            if let Some(sock) = guard.take() {
+                drop(sock);
+            }
+        }
     }
 }
 

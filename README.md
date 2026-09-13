@@ -11,9 +11,10 @@ to port 8899.
 
 Two clients are available:
 
-- `client::Client` — synchronous, one-shot connection per call (no async runtime needed).
-- `async_client::AsyncClient` — tokio-based, feature `async`. Keeps the connection open
-  across calls and reconnects automatically if the inverter dropped it.
+- `client::Client` — synchronous. Keeps the connection open for its lifetime and
+  closes it on `drop()`; reconnects only after an error.
+- `async_client::AsyncClient` — tokio-based, feature `async`. Same connection
+  handling: kept open, closed on `drop()`, reconnect-on-error.
 
 ```toml
 [dependencies]

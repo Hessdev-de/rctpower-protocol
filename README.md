@@ -30,6 +30,13 @@ As standalone tool (example, feature `cli`):
 cargo run --features cli --example rct_proxy -- --port 18899 --host 192.168.1.50 [--inverter-port 8899]
 ```
 
+As Docker container (GitHub Actions builds `linux/amd64` + `linux/arm64/v8` → GHCR):
+
+```
+docker run --rm -p 18899:18899 ghcr.io/Hessdev-de/rctpower-protocol:main \
+  --port 18899 --host 192.168.1.50
+```
+
 ```toml
 [dependencies]
 rctpower_protocol = { version = "0.0.1", features = ["async"] }

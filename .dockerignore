@@ -1,0 +1,11 @@
+.git
+.github
+.hermes
+vendor
+tests
+tools
+docs
+target
+*.md
+.dockerignore
+Dockerfile

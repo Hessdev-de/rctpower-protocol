@@ -60,6 +60,7 @@ impl Proxy {
             let addr = inverter_addr.clone();
             let cfg = cfg.clone();
             tokio::spawn(async move {
+                println!("Client Connected");
                 let _ = serve_client(sock, upstream, addr, cfg).await;
             });
         }

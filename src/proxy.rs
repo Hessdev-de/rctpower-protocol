@@ -151,7 +151,14 @@ async fn serve_client(
                                 return Ok(()); // downstream gone
                             }
                         }
-                        Err(_) => return Err(RctError::Timeout),
+                        Err(e) => {
+                            // Do NOT tear down the downstream session on a single
+                            // upstream failure: the client only sees its own read
+                            // timeout and retries on the same connection. Closing
+                            // here is what surfaces as a broken pipe for clients
+                            // that keep the session open across polls.
+                            eprintln!("proxy: upstream exchange failed: {e}");
+                        }
                     }
                     rx = ReceiveFrame::new(false);
                 }
@@ -214,11 +221,51 @@ mod tests {
         let _ = child.kill().await;
     }
 
+    // Regression: an upstream failure must NOT close the downstream session —
+    // clients that hold one connection open across polls would see it as a
+    // broken pipe. They must instead be able to retry on the same connection.
+    #[tokio::test]
+    #[ignore = "requires python3 simulator"]
+    async fn upstream_failure_keeps_downstream_session_open() {
+        let (sim_port, mut child) = start_simulator_on(0).await;
+        let cfg = ClientConfig {
+            port: 0,
+            timeout: std::time::Duration::from_secs(2),
+            retries: 1,
+            retry_delay: std::time::Duration::from_millis(50),
+        };
+        let proxy = Proxy::bind(format!("127.0.0.1:{sim_port}"), cfg).await.expect("bind");
+        let proxy_port = proxy.local_addr().port();
+        let handle = tokio::spawn(proxy.serve());
+
+        let req = make_frame(Command::Read, 0x959930bf, &[], 0, FrameType::Standard).unwrap();
+        let mut c = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+        c.write_all(&req).await.unwrap();
+        assert_eq!(read_float(&mut c).await, DataValue::F32(0.42));
+
+        // simulator dies -> exchange fails, session must survive (timeout only)
+        let _ = child.kill().await;
+        c.write_all(&req).await.unwrap();
+        let r = tokio::time::timeout(std::time::Duration::from_millis(900), read_float(&mut c)).await;
+        assert!(r.is_err(), "expected timeout on dead upstream, got {r:?}");
+
+        // simulator back on the SAME port -> same downstream connection works again
+        let (_p2, mut child2) = start_simulator_on(sim_port).await;
+        c.write_all(&req).await.unwrap();
+        assert_eq!(read_float(&mut c).await, DataValue::F32(0.42));
+
+        let _ = child2.kill().await;
+        handle.abort();
+    }
+
     async fn read_float(sock: &mut TcpStream) -> DataValue {
         let mut rx = ReceiveFrame::new(false);
         let mut buf = [0u8; 256];
         while !rx.complete() {
-            let n = sock.read(&mut buf).await.unwrap();
+            let n = tokio::time::timeout(std::time::Duration::from_secs(3), sock.read(&mut buf))
+                .await
+                .expect("read_float timed out")
+                .unwrap();
             assert!(n > 0, "proxy closed connection");
             rx.consume(&buf[..n]).unwrap();
         }
@@ -226,10 +273,15 @@ mod tests {
     }
 
     async fn start_simulator() -> (u16, tokio::process::Child) {
+        start_simulator_on(0).await
+    }
+
+    async fn start_simulator_on(port: u16) -> (u16, tokio::process::Child) {
         use tokio::io::AsyncBufReadExt;
         let sim = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/simulator.py");
         let mut child = tokio::process::Command::new("python3")
             .arg(&sim)
+            .arg(port.to_string())
             .stdout(std::process::Stdio::piped())
             .spawn()
             .expect("spawn simulator");

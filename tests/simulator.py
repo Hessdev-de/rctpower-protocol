@@ -55,9 +55,10 @@ def handle(sock: socket.socket) -> None:
 
 
 def main() -> int:
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 0
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    srv.bind(("127.0.0.1", 0))
+    srv.bind(("127.0.0.1", port))
     srv.listen(4)
     print(f"PORT {srv.getsockname()[1]}", flush=True)
     import time

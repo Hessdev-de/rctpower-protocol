@@ -174,16 +174,13 @@ async fn serve_client(
         if n == 0 {
             return Ok(()); // downstream disconnected
         }
-        // feed byte-by-byte so every complete frame is forwarded whole; wire
-        // bytes per frame are tracked via a parallel raw buffer
-        let mut frame_start: Option<usize> = None;
-        for (i, &c) in buf[..n].iter().enumerate() {
-            if rx.no_bytes() {
-                frame_start = Some(i);
-            }
+        // feed byte-by-byte so every complete frame is forwarded whole;
+        // ReceiveFrame tracks the wire bytes (escapes included) itself, so
+        // frames split across reads or coalesced in one read stay intact
+        for &c in &buf[..n] {
             match rx.consume(std::slice::from_ref(&c)) {
                 Ok(_) if rx.complete() => {
-                    let wire = buf[frame_start.take().unwrap()..=i].to_vec();
+                    let wire = rx.wire_bytes();
                     debug!("[{peer}] -> {addr}: {}", describe_frame(&rx));
                     match exchange(&upstream, &addr, &cfg, &wire, peer).await {
                         Ok(resp) => {
@@ -212,7 +209,6 @@ async fn serve_client(
                     // desync within this chunk; re-sync on next start token
                     warn!("[{peer}] frame desync, re-syncing");
                     rx = ReceiveFrame::new(false);
-                    frame_start = None;
                 }
             }
         }
@@ -302,6 +298,89 @@ mod tests {
 
         let _ = child2.kill().await;
         handle.abort();
+    }
+
+    // Regression: wire_bytes() must be byte-transparent — escape tokens
+    // included. An object id containing 0x2b/0x2d forces escapes into both
+    // request and response wire bytes; if the proxy forwards the unescaped
+    // buffer the response no longer parses with a valid CRC.
+    #[tokio::test]
+    #[ignore = "requires python3 simulator"]
+    async fn escape_bytes_survive_proxy_roundtrip() {
+        let (sim_port, mut child) = start_simulator_on(0).await;
+        let cfg = ClientConfig {
+            port: 0,
+            timeout: std::time::Duration::from_secs(5),
+            retries: 1,
+            retry_delay: std::time::Duration::from_millis(100),
+        };
+        let proxy = Proxy::bind(format!("127.0.0.1:{sim_port}"), cfg).await.expect("bind");
+        let proxy_port = proxy.local_addr().port();
+        let handle = tokio::spawn(proxy.serve());
+
+        // id contains START_TOKEN (0x2b) and ESCAPE_TOKEN (0x2d) bytes
+        let req = make_frame(Command::Read, 0x2d00_2b00, &[], 0, FrameType::Standard).unwrap();
+        assert!(req[1..].contains(&crate::frame::ESCAPE_TOKEN));
+        let mut c = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+        c.write_all(&req).await.unwrap();
+
+        let mut rx = ReceiveFrame::new(false);
+        let mut buf = [0u8; 256];
+        let mut got_escape_on_wire = false;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !rx.complete() {
+            let n = tokio::time::timeout(deadline - tokio::time::Instant::now(), c.read(&mut buf))
+                .await
+                .expect("timeout")
+                .unwrap();
+            assert!(n > 0, "proxy closed connection");
+            if buf[..n].contains(&crate::frame::ESCAPE_TOKEN) {
+                got_escape_on_wire = true;
+            }
+            rx.consume(&buf[..n]).unwrap();
+        }
+        assert!(got_escape_on_wire, "response wire lost its escape tokens");
+        assert!(rx.crc_ok(), "forwarded response frame CRC invalid -> escapes lost");
+        assert_eq!(rx.id(), 0x2d00_2b00);
+        assert_eq!(
+            crate::codec::decode_value(DataType::Float, rx.data()).unwrap(),
+            DataValue::F32(0.42)
+        );
+
+        handle.abort();
+        let _ = child.kill().await;
+    }
+
+    // Regression: a downstream frame split across two reads (TCP segmentation)
+    // must still be forwarded whole — the frame-start tracker must persist
+    // across read() calls instead of panicking on frame_start.take().unwrap().
+    #[tokio::test]
+    #[ignore = "requires python3 simulator"]
+    async fn split_downstream_frame_is_forwarded_whole() {
+        let (sim_port, mut child) = start_simulator_on(0).await;
+        let cfg = ClientConfig {
+            port: 0,
+            timeout: std::time::Duration::from_secs(5),
+            retries: 1,
+            retry_delay: std::time::Duration::from_millis(100),
+        };
+        let proxy = Proxy::bind(format!("127.0.0.1:{sim_port}"), cfg).await.expect("bind");
+        let proxy_port = proxy.local_addr().port();
+        let handle = tokio::spawn(proxy.serve());
+
+        let req = make_frame(Command::Read, 0x959930bf, &[], 0, FrameType::Standard).unwrap();
+        let mut c = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+        // split the frame mid-header: first 5 wire bytes, then the rest
+        c.write_all(&req[..5]).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        c.write_all(&req[5..]).await.unwrap();
+        assert_eq!(read_float(&mut c).await, DataValue::F32(0.42));
+        // session must still be usable after the split frame
+        c.write_all(&req).await.unwrap();
+        assert_eq!(read_float(&mut c).await, DataValue::F32(0.42));
+
+        handle.abort();
+        let _ = child.kill().await;
     }
 
     async fn read_float(sock: &mut TcpStream) -> DataValue {

@@ -63,6 +63,10 @@ pub struct ReceiveFrame {
     frame_length: usize,
     command: Option<Command>,
     buffer: Vec<u8>,
+    /// Raw wire bytes of the current frame INCLUDING start/escape tokens
+    /// (consume() strips escapes from `buffer`, so wire transparency needs a
+    /// parallel record — the proxy forwards frames byte-for-byte).
+    raw: Vec<u8>,
     consumed_bytes: usize,
     frame_header_length: usize,
     id: u32,
@@ -81,6 +85,7 @@ impl ReceiveFrame {
             frame_length: 0,
             command: None,
             buffer: Vec::new(),
+            raw: Vec::new(),
             consumed_bytes: 0,
             // start(1) + command(1) + length(1) + no address + id(4)
             frame_header_length: 1 + 1 + 1 + 4,
@@ -106,7 +111,7 @@ impl ReceiveFrame {
     }
     /// Raw wire bytes of the current frame, escaping included (as received).
     pub fn wire_bytes(&self) -> Vec<u8> {
-        self.buffer.clone()
+        self.raw.clone()
     }
     pub fn command(&self) -> Option<Command> {
         self.command
@@ -135,10 +140,16 @@ impl ReceiveFrame {
             // sync to start token
             if self.buffer.is_empty() {
                 if c == START_TOKEN {
+                    self.raw.clear();
+                    self.raw.push(c);
                     self.buffer.push(c);
                 }
                 continue;
             }
+
+            // every byte from the start token on belongs to the wire bytes,
+            // escape tokens included (buffer strips them, raw must not)
+            self.raw.push(c);
 
             if self.escaping {
                 self.escaping = false;

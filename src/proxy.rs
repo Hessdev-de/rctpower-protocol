@@ -13,9 +13,11 @@
 // SAFETY: writes forwarded through the proxy change plant behaviour — all
 // risk lies with the operator.
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
 
+use log::{debug, error, info, warn};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
@@ -23,6 +25,35 @@ use tokio::sync::Mutex;
 use crate::client::ClientConfig;
 use crate::error::RctError;
 use crate::frame::ReceiveFrame;
+use crate::registry::registry;
+use crate::types::DataType;
+
+/// Human-readable one-liner for a parsed frame: registry object name + decoded
+/// value when the type allows it, hex payload otherwise. Used for debug!-level
+/// traffic logging.
+pub fn describe_frame(rx: &ReceiveFrame) -> String {
+    let obj = registry().get_by_id(rx.id());
+    let cmd = rx.command().map(|c| format!("{c:?}")).unwrap_or_else(|| "?".into());
+    let name = obj.map(|o| o.name).unwrap_or("unknown");
+    let mut s = format!("{cmd} {name} (0x{:08X})", rx.id());
+    if !rx.data().is_empty() {
+        let value = obj.and_then(|o| crate::codec::decode_value(o.response_data_type, rx.data()).ok());
+        let shown = match value {
+            Some(v) => match (obj, v.clone()) {
+                (Some(o), crate::types::DataValue::U32(v)) if o.request_data_type == DataType::Enum => {
+                    match o.enum_str(v) {
+                        Some(es) => format!("{v} ({es})"),
+                        None => format!("{v}"),
+                    }
+                }
+                (_, v) => format!("{v:?}"),
+            },
+            None => rx.data_hex(),
+        };
+        s.push_str(&format!(" = {shown}"));
+    }
+    s
+}
 
 pub struct Proxy {
     listener: TcpListener,
@@ -54,14 +85,18 @@ impl Proxy {
     /// Accept-loop: one task per downstream client, serialized upstream.
     pub async fn serve(self) -> Result<(), RctError> {
         let Self { listener, inverter_addr, cfg, upstream } = self;
+        info!("proxy listening on {} -> {}", listener.local_addr()?, inverter_addr);
         loop {
-            let (sock, _peer) = listener.accept().await?;
+            let (sock, peer) = listener.accept().await?;
+            info!("client connected: {peer}");
             let upstream = upstream.clone();
             let addr = inverter_addr.clone();
             let cfg = cfg.clone();
             tokio::spawn(async move {
-                println!("Client Connected");
-                let _ = serve_client(sock, upstream, addr, cfg).await;
+                match serve_client(sock, upstream, addr, cfg, peer).await {
+                    Ok(()) => info!("client disconnected: {peer}"),
+                    Err(e) => warn!("client session ended: {peer}: {e}"),
+                }
             });
         }
     }
@@ -74,16 +109,19 @@ async fn exchange(
     addr: &str,
     cfg: &ClientConfig,
     wire_request: &[u8],
+    peer: SocketAddr,
 ) -> Result<Vec<u8>, RctError> {
     let mut guard = upstream.lock().await;
     if guard.is_none() {
+        info!("connecting upstream {addr} (for {peer})");
         let sock = TcpStream::connect(addr).await?;
         *guard = Some(sock);
     }
     let sock = guard.as_mut().expect("upstream connected");
 
     let result = exchange_on(sock, wire_request, cfg).await;
-    if result.is_err() {
+    if let Err(e) = &result {
+        error!("upstream exchange failed: {e}");
         // unknown state -> reconnect on next request
         if let Some(s) = guard.take() {
             drop(s);
@@ -127,6 +165,7 @@ async fn serve_client(
     upstream: Arc<Mutex<Option<TcpStream>>>,
     addr: String,
     cfg: ClientConfig,
+    peer: SocketAddr,
 ) -> Result<(), RctError> {
     let mut rx = ReceiveFrame::new(false);
     let mut buf = [0u8; 1024];
@@ -145,8 +184,13 @@ async fn serve_client(
             match rx.consume(std::slice::from_ref(&c)) {
                 Ok(_) if rx.complete() => {
                     let wire = buf[frame_start.take().unwrap()..=i].to_vec();
-                    match exchange(&upstream, &addr, &cfg, &wire).await {
+                    debug!("[{peer}] -> {addr}: {}", describe_frame(&rx));
+                    match exchange(&upstream, &addr, &cfg, &wire, peer).await {
                         Ok(resp) => {
+                            let mut prx = ReceiveFrame::new(false);
+                            if prx.consume(&resp).is_ok() {
+                                debug!("[{peer}] <- {addr}: {}", describe_frame(&prx));
+                            }
                             if sock.write_all(&resp).await.is_err() {
                                 return Ok(()); // downstream gone
                             }
@@ -157,7 +201,8 @@ async fn serve_client(
                             // timeout and retries on the same connection. Closing
                             // here is what surfaces as a broken pipe for clients
                             // that keep the session open across polls.
-                            eprintln!("proxy: upstream exchange failed: {e}");
+                            // (logged as error! at the source in exchange())
+                            debug!("[{peer}] forwarding failed: {e}");
                         }
                     }
                     rx = ReceiveFrame::new(false);
@@ -165,6 +210,7 @@ async fn serve_client(
                 Ok(_) => {}
                 Err(_) => {
                     // desync within this chunk; re-sync on next start token
+                    warn!("[{peer}] frame desync, re-syncing");
                     rx = ReceiveFrame::new(false);
                     frame_start = None;
                 }

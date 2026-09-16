@@ -17,6 +17,18 @@ use clap::Parser;
 use rctpower_protocol::client::ClientConfig;
 use rctpower_protocol::proxy::Proxy;
 
+/// Initialise env_logger. The filter comes from RUST_LOG falling back to `info`):
+/// `RUST_LOG=debug` for frame traffic,
+/// `RUST_LOG=rctpower_protocol::proxy=debug` for proxy traffic only.
+fn init_logging() {
+    let filter = std::env::var("RUST_DEBUG")
+        .unwrap_or_else(|_| "info".to_string());
+    env_logger::Builder::new()
+        .parse_filters(&filter)
+        .format_timestamp_millis()
+        .init();
+}
+
 #[derive(Parser)]
 #[command(name = "rct_proxy", about = "RCT Power protocol TCP multiplexer")]
 struct Cli {
@@ -33,6 +45,9 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+
+    init_logging();
+
     let cli = Cli::parse();
     let cfg = ClientConfig {
         port: cli.port,

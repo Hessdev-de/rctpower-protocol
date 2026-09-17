@@ -20,6 +20,11 @@ from rctclient.types import Command, DataType, FrameType  # noqa: E402
 from rctclient.utils import CRC16, decode_value  # noqa: E402
 
 RESPONSE_FLOAT = 0.42
+# object id the simulator applies silently (like real devices that drop the
+# write ack): stored on WRITE without a response, readable on READ afterwards
+NO_ACK_ID = 0xDEADBEEF
+# applied silently-applied values, device-style: survive across connections
+APPLIED = {}
 
 
 def parse_request(data: bytes):
@@ -47,8 +52,11 @@ def handle(sock: socket.socket) -> None:
         command, oid, payload = parse_request(data)
         if command == Command.WRITE:
             val = decode_value(DataType.FLOAT, payload)
+            if oid == NO_ACK_ID:
+                APPLIED[oid] = val
+                continue  # simulate a lost write ack: value applied, no response
         else:
-            val = RESPONSE_FLOAT
+            val = APPLIED.get(oid, RESPONSE_FLOAT)
         resp = make_frame(Command.RESPONSE, oid, struct.pack(">f", float(val)), 0, FrameType.STANDARD)
         sock.sendall(resp)
     sock.close()

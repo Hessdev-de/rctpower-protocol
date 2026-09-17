@@ -383,6 +383,44 @@ mod tests {
         let _ = child.kill().await;
     }
 
+    // Observed field behaviour: real devices sometimes apply a WRITE but never
+    // answer it (the ack is simply lost). That is NOT a proxy bug — the value
+    // must be readable on the next READ over the SAME session, and later
+    // exchanges on the shared upstream must still work.
+    #[tokio::test]
+    #[ignore = "requires python3 simulator"]
+    async fn write_without_ack_times_out_but_value_is_applied() {
+        let (sim_port, mut child) = start_simulator_on(0).await;
+        let cfg = ClientConfig {
+            port: 0,
+            timeout: std::time::Duration::from_millis(700),
+            retries: 1,
+            retry_delay: std::time::Duration::from_millis(50),
+        };
+        let proxy = Proxy::bind(format!("127.0.0.1:{sim_port}"), cfg.clone())
+            .await
+            .expect("bind");
+        let proxy_port = proxy.local_addr().port();
+        let handle = tokio::spawn(proxy.serve());
+
+        let no_ack_id: u32 = 0xDEADBEEF; // simulator: applies, never answers
+        let payload = 0.87f32.to_be_bytes();
+        let write_req = make_frame(Command::Write, no_ack_id, &payload, 0, FrameType::Standard).unwrap();
+        let read_req = make_frame(Command::Read, no_ack_id, &[], 0, FrameType::Standard).unwrap();
+
+        let mut c = TcpStream::connect(("127.0.0.1", proxy_port)).await.unwrap();
+        c.write_all(&write_req).await.unwrap();
+        let r = tokio::time::timeout(std::time::Duration::from_millis(1200), read_float(&mut c)).await;
+        assert!(r.is_err(), "expected timeout on lost write ack, got {r:?}");
+
+        // same session, same upstream: the applied value is readable
+        c.write_all(&read_req).await.unwrap();
+        assert_eq!(read_float(&mut c).await, DataValue::F32(0.87));
+
+        handle.abort();
+        let _ = child.kill().await;
+    }
+
     async fn read_float(sock: &mut TcpStream) -> DataValue {
         let mut rx = ReceiveFrame::new(false);
         let mut buf = [0u8; 256];

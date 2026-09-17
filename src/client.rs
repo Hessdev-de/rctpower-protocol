@@ -69,14 +69,48 @@ impl Client {
         self.exchange(&frame, obj.response_data_type)
     }
 
+    /// Write a value and read it back.
+    ///
+    /// Real devices sometimes apply a WRITE but never answer it (the ack is
+    /// simply lost — see python-rctclient docs). The value is still stored and
+    /// readable on the next READ, so this method treats a write timeout as
+    /// normal: it retries the write, then verifies via read-back. `Ok` means
+    /// the device answered with the value OR the read-back matches; only if the
+    /// read-back differs (or also times out) is it an error.
+    pub fn write_and_verify(&self, obj: &ObjectInfo, value: &DataValue) -> Result<DataValue, RctError> {
+        let payload = encode_for(obj.request_data_type, value)?;
+        let frame = make_frame(crate::types::Command::Write, obj.object_id, &payload, 0, crate::types::FrameType::Standard)?;
+        // try the normal path first: device may answer directly
+        match self.try_exchange(&frame, obj.response_data_type) {
+            Ok(v) => return Ok(v),
+            Err(e) if matches!(e, RctError::Timeout | RctError::EmptyPayload) => {}
+            Err(e) => return Err(e),
+        }
+        for attempt in 0..self.cfg.retries.max(1) {
+            if attempt > 0 {
+                std::thread::sleep(self.cfg.retry_delay);
+                // plain send, tolerate lost acks
+                let _ = self.try_exchange(&frame, obj.response_data_type);
+            }
+            match self.read(obj) {
+                Ok(v) if value == &v => return Ok(v),
+                Ok(_) => continue, // not applied yet (or wrong) — rewrite and re-read
+                Err(_) => continue,
+            }
+        }
+        Err(RctError::Timeout)
+    }
+
     fn exchange(&self, frame: &[u8], resp_type: DataType) -> Result<DataValue, RctError> {
         let mut last_err = RctError::Timeout;
-        for _ in 0..self.cfg.retries.max(1) {
+        for attempt in 0..self.cfg.retries.max(1) {
+            if attempt > 0 {
+                std::thread::sleep(self.cfg.retry_delay);
+            }
             match self.try_exchange(frame, resp_type) {
                 Ok(v) => return Ok(v),
                 Err(e) => last_err = e,
             }
-            std::thread::sleep(self.cfg.retry_delay);
         }
         Err(last_err)
     }
